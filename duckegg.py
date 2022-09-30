@@ -6,10 +6,17 @@ import uuid
 from dataclasses import dataclass
 from collections import defaultdict
 
+__counter = 0
+
 
 @dataclass(frozen=True)
 class Var:
     name: str
+
+
+def FreshVar():
+    __counter += 1
+    return Var(f"x{__counter}")
 
 
 def Vars(xs):
@@ -33,7 +40,7 @@ def create(sym):
     return f"CREATE TABLE {name}({args}, CONSTRAINT UC{name} UNIQUE ({unique_args}))"
 
 
-class FunctionInstance():
+class Term():
     def __init__(self, name, *args):
         self.name = name
         self.args = args
@@ -42,7 +49,7 @@ class FunctionInstance():
         clause = []
         newargs = []
         for arg in self.args:
-            if isinstance(arg, FunctionInstance):
+            if isinstance(arg, Term):
                 v, c = arg.flatten()
                 clauses += c
                 newargs.append(v)
@@ -55,12 +62,9 @@ class FunctionInstance():
         return res, clauses
 
 
-class Function():
-    def __init__(self, name):
-        self.name = name
+def Function(name):
+    return lambda *args: Term(name, *args)
 
-    def __call__(self, *args):
-        return FunctionInstance(self.name, *args)
 
 # Rule?
 
@@ -92,7 +96,7 @@ class Clause():
         for rel in self.body:
             newargs = []
             for arg in rel.args:
-                if isinstance(arg, FunctionInstance):
+                if isinstance(arg, Term):
                     v, rels = arg.flatten()
                     newrels += rels
                     newargs.append(v)
@@ -172,8 +176,91 @@ class Solver():
     def __init__(self):
         self.con = duckdb.connect(database=':memory:')
         self.con.execute("CREATE SEQUENCE counter START 1;")
+        self.con.execute(
+            "CREATE TABLE duckegg_root(i integer primary key, j integer NOT NULL);")
+        self.con.execute("CREATE TABLE duckegg_edge(i integer, j integer);")
         self.funcs = set()
         self.rules = []
+        self.debug = True
+
+    def normalize_root(self):
+        self.execute("""
+            WITH RECURSIVE
+            path(i,j) AS (
+                select * from duckegg_edge
+                union
+                SELECT r1.i, r2.j FROM duckegg_edge AS r1, path as r2 where r1.j = r2.i
+            )
+            INSERT INTO duckegg_root
+                select i, min(j) from path 
+                group by i
+
+            """)
+        # duckegg_edge is now free
+        self.execute("DELETE FROM duckegg_edge")
+
+    # add(x,y,z) :- add(x1,x2,x3), root(x1,x), root(x2,y), root(x3,z).
+    def canonize_tables(self):
+        for name, arity in self.funcs:
+            for n in range(arity + 1):
+                # We need to delete rows that canonize to duplicates
+                # Because of unique constraint on table.
+                wheres = " AND ".join(
+                    [f"x{i} = good.x{i}" for i in range(arity+1) if i != n])
+                self.execute(f"""
+                DELETE FROM {name}
+                USING duckegg_root
+                WHERE x{n} = duckegg_root.i
+                 AND EXISTS (
+                    SELECT * 
+                    FROM {name} AS good
+                    WHERE
+                    x{n} = duckegg_root.j
+                    AND
+                    {wheres}
+
+                 )
+                """)
+                #sets = ",".join([f"x{i} = root{i}.j" for i in range(arity+1)])
+                # froms = ",".join(
+                #    [f"duckegg_root as root{i}" for i in range(arity+1)])
+                # wheres = " AND ".join(
+                #    [f"root{i}.i = x{i}" for i in range(arity+1)])
+                self.execute(f"""
+                UPDATE {name} 
+                SET x{n} = duckegg_root.j
+                FROM duckegg_root
+                WHERE x{n} = duckegg_root.i
+                """)
+        # we have used up all the info from duckegg_root now and may safely forget it.
+        self.con.execute("DELETE FROM duckegg_root")
+    # edge() :-
+
+    def execute(self, query):
+        if self.debug:
+            print(query)
+        self.con.execute(query)
+
+    def congruence(self):
+        for name, arity in self.funcs:
+            print(name, arity)
+            wheres = " AND ".join([f"f1.x{n} = f2.x{n}" for n in range(arity)])
+            res = arity
+            print(wheres)
+            self.execute(f"""
+            INSERT INTO duckegg_edge
+            SELECT f2.x{res}, f1.x{res}
+            FROM {name} as f1, {name} as f2
+            WHERE {wheres} AND f1.x{res} < f2.x{res}
+            """)
+            # bug. consider n = 0
+
+    def rebuild(self):
+        for i in range(3):
+            self.congruence()
+            # if duckegg_edge empty: break
+            self.normalize_root()
+            self.canonize_tables()
 
     def add(self, rule):
         if isinstance(rule, Clause):
@@ -227,3 +314,17 @@ s = Solver()
 s.add(edge(x, y))
 s.solve()
 print(s.query("edge"))
+
+s = Solver()
+s.funcs.add(("plus", 2))
+plus = Relation("plus")
+s.add(plus(1, 2, 3))
+s.add(plus(1, 2, 4))
+s.add(plus(1, 2, 5))
+s.add(plus(3, 4, 6))
+s.add(plus(5, 5, 7))
+s.solve()
+s.rebuild()
+print(s.query("plus"))
+print(s.query("duckegg_edge"))
+print(s.query("duckegg_root"))

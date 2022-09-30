@@ -16,7 +16,7 @@
 
 
 CREATE TABLE edge(i integer, j integer);
-CREATE TABLE root(i integer primary key, j integer);
+CREATE TABLE root(i integer primary key, j integer NOT NULL);
 
 INSERT INTO edge VALUES (2,1), (3,3);
 INSERT INTO root VALUES (1,1), (2,2), (3,3);
@@ -46,6 +46,18 @@ WHERE root.i = goodroot.i
 SELECT * from root;
 
 /*
+The convention of leaving out (i,i) seem smart.
+Also after canonizing, we can destroy the union find. That also seems smart.
+
+
+goodroot(i,j) AS (
+    select i, least(i, min(j)) from path 
+    group by i
+)
+
+
+
+
 WITH RECURSIVE
 edge(i,j) AS (VALUES (1,1), (2,1), (3,2), (4,3)),
 root(i,j) AS (
