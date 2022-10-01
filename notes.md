@@ -107,3 +107,9 @@ Fork.
 An Egg 
 vs datalog - seminaive
 
+
+Hmm. Getting this to emit a souffle backend might not be so hard either.
+
+It would be simpler to make root not have i as a primary key constraint.
+
+A stronger analysis probably could be good to know what a rule actually depends on.
