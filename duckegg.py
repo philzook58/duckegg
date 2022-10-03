@@ -1,7 +1,4 @@
-
-
 import cProfile
-from functools import reduce
 from typing import Any
 import duckdb
 from dataclasses import dataclass
@@ -19,7 +16,7 @@ de__counter = 0
 def FreshVar():
     global de__counter
     de__counter += 1
-    return Var(f"x{de__counter}")
+    return Var(f"duckegg_x{de__counter}")
 
 
 def Vars(xs):
@@ -31,30 +28,15 @@ class Atom:
     name: str
     args: list[Any]
 
-    def all_funcs(self):
-        funcs = set()
-        for arg in self.args:
-            if isinstance(arg, Term):
-                funcs.update(arg.all_funcs())
-        return funcs
+    def __repr__(self):
+        args = ",".join(map(repr, self.args))
+        return f"{self.name}({args})"
 
 
-def Relation(name):
-    return lambda *args: Atom(name, args)
-
-
-class Term():
-    def __init__(self, name, *args):
-        self.name = name
-        self.args = args
-
-    def all_funcs(self):
-        acc = set()
-        acc.add((self.name, len(self.args)))
-        for arg in self.args:
-            if isinstance(arg, Term):
-                acc.update(arg.all_funcs())
-        return acc
+@dataclass
+class Term:
+    name: str
+    args: list[Any]
 
     def flatten(self):
         clauses = []
@@ -68,7 +50,7 @@ class Term():
                 newargs.append(arg)
         res = FreshVar()
         newargs.append(res)
-        rel = Relation(self.name)(*newargs)
+        rel = Atom(self.name, newargs)
         clauses.append(rel)
         return res, clauses
 
@@ -77,41 +59,10 @@ class Term():
         return f"{self.name}({args})"
 
 
-def Function(name):
-    return lambda *args: Term(name, *args)
-
-
-# Rule?
-
-
 class Clause():
     def __init__(self, head, body):
         self.head = head
         self.body = body
-
-    def all_syms(self):
-        syms = set([(self.head.name, len(self.head.args))])
-        for rel in self.body:
-            syms.add((rel.name, len(rel.args)))
-        return syms
-
-    def all_funcs(self):
-        funcs = set()
-        funcs.update(self.head.all_funcs())
-        for rel in self.body:
-            funcs.update(rel.all_funcs())
-        return funcs
-
-    # def __and__(self, rhs):
-    #    return Clause(self.head + rhs.head, self.body + rhs.body)
-
-    # def __le__(self, rhs):
-    #    return Clause(self.head, self.body + [rhs.head])
-    def expand_head(self):
-        if isinstance(self.head, list):
-            return [Clause(rel, self.body) for rel in self.head]
-        else:
-            return [self]
 
     def expand_functions(self):
         body = []
@@ -145,7 +96,7 @@ class Clause():
         return reversed(clauses)  # Clause(newhead, newrels)
 
     def normalize(self):
-        return self.expand_functions()  # .expand_head()
+        return self.expand_functions()
 
     def compile(self):
         global de__counter
@@ -169,6 +120,7 @@ class Clause():
         if len(queries) > 0:
             query = " FROM " + ", ".join(queries) + " "
         else:  # Facts have no query body
+            # Really weird hack. Rethink this one.
             query = "FROM VALUES (42) AS dummy"
         # Building the WHERE clause
         # Sharing argument variables becomes an equality constraint
@@ -182,6 +134,7 @@ class Clause():
                     if argset[0] != arg:
                         conditions.append(f"{argset[0]} = {arg}")
                 else:
+                    print(v, argset)
                     assert False
 
         # Unbound vatiables in head need a fresh identifier.
@@ -200,7 +153,7 @@ class Clause():
         insert = f"INSERT INTO {self.head.name} SELECT DISTINCT {selects} "
         """
 
-    # There are always wheres here?
+        # There are always wheres here?
         # unique_wheres = " AND ".join(
         #    [f"x{n} = {v}" for n, v in enumerate(headargs) if v != nextval])  # The != nextval does the skolem check
         def conv_headarg(arg):
@@ -243,16 +196,6 @@ class Clause():
         return f"{repr(self.head)} :- {repr(self.body)}"
 
 
-"""
-con = duckdb.connect(database=':memory:')
-for sym in c.all_syms():
-    con.execute(create(sym))
-con.execute(c.compile())
-"""
-# c2 = Clause(edge(1, 2), [])
-# print(c2.compile())
-
-
 class Solver():
     def __init__(self):
         self.con = duckdb.connect(database=':memory:')
@@ -264,6 +207,18 @@ class Solver():
         self.funcs = set()
         self.rules = []
         self.debug = False
+
+    def Relation(self, name, arity):
+        args = ",".join([f"x{n} INTEGER NOT NULL" for n in range(arity)])
+        self.execute(f"CREATE TABLE  IF NOT EXISTS {name}({args})")
+        return lambda *args: Atom(name, args)
+
+    def Function(self, name, arity):
+        args = ",".join([f"x{n} INTEGER NOT NULL" for n in range(arity+1)])
+        self.execute(f"CREATE TABLE IF NOT EXISTS {name}({args})")
+        self.execute(f"CREATE TABLE IF NOT EXISTS duckegg_temp_{name}({args})")
+        self.funcs.add((name, arity))
+        return lambda *args: Term(name, args)
 
     def normalize_root(self):
         self.execute("""
@@ -281,27 +236,10 @@ class Solver():
         # duckegg_edge is now free
         self.execute("DELETE FROM duckegg_edge")
 
-    # add(x,y,z) :- add(x1,x2,x3), root(x1,x), root(x2,y), root(x3,z).
+    # add(x,x2,x3) :- add(x1,x2,x3), root(x1,x).
     def canonize_tables(self):
         for name, arity in self.funcs:
             for n in range(arity + 1):
-                # We need to delete rows that canonize to duplicates
-                # Because of unique constraint on table.
-                wheres = " AND ".join(
-                    [f"x{i} = good.x{i}" for i in range(arity+1) if i != n])
-                # self.execute(f"""
-                # DELETE FROM {name}
-                # USING duckegg_root
-                # WHERE x{n} = duckegg_root.i
-                # AND EXISTS (
-                #    SELECT *
-                #    FROM {name} AS good
-                #    WHERE
-                #    x{n} = duckegg_root.j
-                #    {"AND" if wheres != "" else ""}
-                #    {wheres}
-                # )
-                # """)
                 # find all updated entries and insert into temp table
                 args = [f"x{i}" for i in range(arity+1)]
                 args[n] = "duckegg_root.j"
@@ -364,13 +302,11 @@ class Solver():
 
     def add(self, rule):
         if isinstance(rule, Clause):
-            self.funcs.update(rule.all_funcs())
-            print(rule.all_funcs())
             for rule in rule.normalize():
                 self.rules.append(rule)
         elif isinstance(rule, Atom):  # add facts
-            self.funcs.update(rule.all_funcs())
-            self.rules.append(Clause(rule, []))
+            for rule in Clause(rule, []).normalize():
+                self.execute(rule.compile())
         elif isinstance(rule, list):
             for rule in rule:
                 self.add(rule)
@@ -378,133 +314,46 @@ class Solver():
             assert False
 
     def query(self, name):
-        self.con.execute(f"SELECT * from {name}")
+        self.con.execute(f"SELECT * FROM {name}")
         return self.con.fetchall()
 
+    def enode_count(self):
+        count = 0
+        for name, _ in self.funcs:
+            self.execute(f"SELECT COUNT(*) FROM {name}")
+            size = self.con.fetchone()[0]
+            count += size
+        return count
+
     def solve(self, n=10):
-        rules = [normrule for rule in self.rules for normrule in rule.normalize()]
-        syms = {sym for rule in rules for sym in rule.all_syms()}
-
-        def create(sym):
-            name, arity = sym
-            args = ",".join([f"x{n} INTEGER NOT NULL" for n in range(arity)])
-            unique_args = ",".join([f"x{n}" for n in range(arity)])
-            self.execute(f"CREATE TABLE  IF NOT EXISTS {name}({args})")
-        for sym in syms:
-            create(sym)
-        for func, arity in self.funcs:
-            create((f"duckegg_temp_{func}", arity+1))
-        stmts = []
-        for rule in rules:
-            if len(rule.body) == 0:  # facts
-                self.execute(rule.compile())
-            else:
-                stmts.append(rule.compile())
+        stmts = [rule.compile() for rule in self.rules]
         for iter in range(n):
+            print(f"Iter {iter}, {self.enode_count()} ENodes")
             for stmt in stmts:
-                self.execute(
-                    "select count(*) from plus")
-                size = self.con.fetchone()[0]
-                print(size)
                 self.execute(stmt)
-                self.execute(
-                    "select count(*) from plus")
-                size = self.con.fetchone()[0]
-                print(size)
                 self.rebuild()
-        print(stmts)
 
 
-x, y, z = Vars("x y z")
-"""
-path = Relation("path")
-edge = Relation("edge")
-c = Clause(path(x, z), [edge(x, y), path(y, z)])
-# c = path("x", "z") <= edge("x", "y") & path("y", "z")
-print(c.compile())
+if __name__ == "__main__":
+    x, y, z, w = Vars("x y z w")
+    s = Solver()
+    plus = s.Relation("plus", 3)
+    plusf = s.Function("plus", 2)
 
-s = Solver()
-s.add(c)
-# s.add(c2)
-s.add(Clause(path(x, y), [edge(x, y)]))
-s.add(edge(2, 3))
-s.add(edge(1, 2))
-s.solve()
-s.query("path")
-s.con.execute("SELECT * from path")
-print(s.con.fetchall())
+    s.add(Clause(plus(x, y, z), [plus(y, x, z)]))
 
-s = Solver()
-s.add(edge(x, y))
-s.solve()
-print(s.query("edge"))
-
-s = Solver()
-s.funcs.add(("plus", 2))
-plus = Relation("plus")
-s.add(plus(1, 2, 3))
-s.add(plus(1, 2, 4))
-s.add(plus(1, 2, 5))
-s.add(plus(3, 4, 6))
-s.add(plus(5, 5, 7))
-s.solve()
-s.rebuild()
-print(s.query("plus"))
-print(s.query("duckegg_edge"))
-print(s.query("duckegg_root"))
-
-
-plus = Function("plus")
-t = plus(plus(1, 2), 3)
-print(t.flatten())
-
-even = Relation("even")
-print(Clause(even(plus(x, y)), [even(plus(y, x))]).normalize())
-zero = Function("zero")
-succ = Function("succ")
-nat = Relation("nat")
-
-s = Solver()
-s.add(Clause(nat(x), [nat(succ(x))]))
-s.add(nat(succ(succ(zero()))))
-s.solve()
-print(s.query("nat"))
-print(s.query("succ"))
-print(s.query("zero"))
-print(s.funcs)
-
-"""
-
-plus = Relation("plus")
-plusf = Function("plus")
-s = Solver()
-s.funcs.add(("plus", 2))
-s.add(Clause(plus(x, y, z), [plus(y, x, z)]))
-# N = 9
-# for k in range(1, N):
-#    s.add(plus(-2*k, -2*k-1, -2*k-2))
-
-
-def initplus(x, y, z):
-    s.con.execute(f"INSERT INTO plus VALUES ({x},{y},{z})")
-
-
-s.con.execute(
-    "CREATE TABLE plus(x0 integer NOT NULL, x1 integer NOT NULL, x2 integer NOT NULL);")
-
-N = 10
-for k in range(1, N):
-    initplus(-2*k, -2*k-1, -2*k-2)
-# s.add(plus(1, reduce(plusf, [FreshVar for x in range(3)]), 3))
-w = Var("w")
-s.add(Clause(plus(plusf(x, y), z, w), [plus(x, plusf(y, z), w)]))
-s.add(Clause(plus(x, plusf(y, z), w), [plus(plusf(x, y), z, w)]))
-cProfile.run('s.solve(n=5)')
-print(len(s.query("plus")))
-size = len(s.query("plus"))
-s.con.execute(
-    "select sum(col0) from (select count(*) - 1 as col0 from plus group by x0, x1, x2 having count(*) > 1)")
-dups = s.con.fetchone()[0]
-if dups == None:
-    dups = 0
-print(size, dups, size - dups, 3**N - 2**(N+1) + 1)
+    N = 11
+    for k in range(1, N):
+        s.add(plus(-2*k, -2*k-1, -2*k-2))
+    s.add(Clause(plus(plusf(x, y), z, w), [plus(x, plusf(y, z), w)]))
+    s.add(Clause(plus(x, plusf(y, z), w), [plus(plusf(x, y), z, w)]))
+    cProfile.run('s.solve(n=5)')
+    print(len(s.query("plus")))
+    size = len(s.query("plus"))
+    s.con.execute(
+        "select sum(col0) from (select count(*) - 1 as col0 from plus group by x0, x1, x2 having count(*) > 1)")
+    dups = s.con.fetchone()[0]
+    if dups == None:
+        dups = 0
+    print(
+        f"plus table size: {size}, duplicates: {dups}, Expected size: {3**N - 2**(N+1) + 1}")

@@ -171,3 +171,128 @@ It might be nice to do congruence right in the rule.
                     GROUP BY {cols}
                 );
             """)
+
+            syms = {sym for rule in rules for sym in rule.all_syms()}
+
+        def create(sym):
+            name, arity = sym
+            args = ",".join([f"x{n} INTEGER NOT NULL" for n in range(arity)])
+            unique_args = ",".join([f"x{n}" for n in range(arity)])
+            self.execute(f"CREATE TABLE  IF NOT EXISTS {name}({args})")
+        for sym in syms:
+            create(sym)
+        for func, arity in self.funcs:
+            create((f"duckegg_temp_{func}", arity+1))
+
+                            # Does this make any sense at all?
+                # We need to delete rows that canonize to duplicates
+                # Because of unique constraint on table.
+                # wheres = " AND ".join(
+                #    [f"x{i} = good.x{i}" for i in range(arity+1) if i != n])
+                # self.execute(f"""
+                # DELETE FROM {name}
+                # USING duckegg_root
+                # WHERE x{n} = duckegg_root.i
+                # AND EXISTS (
+                #    SELECT *
+                #    FROM {name} AS good
+                #    WHERE
+                #    x{n} = duckegg_root.j
+                #    {"AND" if wheres != "" else ""}
+                #    {wheres}
+                # )
+                # """)
+
+
+                    def all_syms(self):
+        syms = set([(self.head.name, len(self.head.args))])
+        for rel in self.body:
+            syms.add((rel.name, len(rel.args)))
+        return syms
+
+    def all_funcs(self):
+        funcs = set()
+        funcs.update(self.head.all_funcs())
+        for rel in self.body:
+            funcs.update(rel.all_funcs())
+        return funcs
+
+            def all_funcs(self):
+        acc = set()
+        acc.add((self.name, len(self.args)))
+        for arg in self.args:
+            if isinstance(arg, Term):
+                acc.update(arg.all_funcs())
+        return acc
+
+            def all_funcs(self):
+        funcs = set()
+        for arg in self.args:
+            if isinstance(arg, Term):
+                funcs.update(arg.all_funcs())
+        return funcs
+
+            def expand_head(self):
+        if isinstance(self.head, list):
+            return [Clause(rel, self.body) for rel in self.head]
+        else:
+            return [self]
+
+"""
+path = Relation("path")
+edge = Relation("edge")
+c = Clause(path(x, z), [edge(x, y), path(y, z)])
+# c = path("x", "z") <= edge("x", "y") & path("y", "z")
+print(c.compile())
+
+s = Solver()
+s.add(c)
+# s.add(c2)
+s.add(Clause(path(x, y), [edge(x, y)]))
+s.add(edge(2, 3))
+s.add(edge(1, 2))
+s.solve()
+s.query("path")
+s.con.execute("SELECT * from path")
+print(s.con.fetchall())
+
+s = Solver()
+s.add(edge(x, y))
+s.solve()
+print(s.query("edge"))
+
+s = Solver()
+s.funcs.add(("plus", 2))
+plus = Relation("plus")
+s.add(plus(1, 2, 3))
+s.add(plus(1, 2, 4))
+s.add(plus(1, 2, 5))
+s.add(plus(3, 4, 6))
+s.add(plus(5, 5, 7))
+s.solve()
+s.rebuild()
+print(s.query("plus"))
+print(s.query("duckegg_edge"))
+print(s.query("duckegg_root"))
+
+
+plus = Function("plus")
+t = plus(plus(1, 2), 3)
+print(t.flatten())
+
+even = Relation("even")
+print(Clause(even(plus(x, y)), [even(plus(y, x))]).normalize())
+zero = Function("zero")
+succ = Function("succ")
+nat = Relation("nat")
+
+s = Solver()
+s.add(Clause(nat(x), [nat(succ(x))]))
+s.add(nat(succ(succ(zero()))))
+s.solve()
+print(s.query("nat"))
+print(s.query("succ"))
+print(s.query("zero"))
+print(s.funcs)
+
+"""
