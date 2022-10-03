@@ -1,5 +1,7 @@
 # duckegg
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](http://colab.research.google.com/github/philzook58/duckegg/blob/master)
+
 Duckegg is an embedded python datalog implementation built around duckdb to supply it's core functionality. Duckdb is making waves as a performant, embedded, easy-to-deploy OLAP database
 
 Blog post here <https://www.philipzucker.com/duckegg-post/>
