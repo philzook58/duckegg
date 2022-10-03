@@ -8,10 +8,12 @@ Yihong Zhang previously had the idea of building a [relational egglog around sql
 
 Blog post forthcoming!
 
-For more on egraphs
+For more on egraphs and egglog
 
 - <https://egraphs-good.github.io/>
 - <https://www.philipzucker.com/egglog/>
+- <https://www.philipzucker.com/souffle-egg4/>
+- <https://www.hytradboi.com/2022/writing-part-of-a-compiler-in-datalog>
 - <https://www.philipzucker.com/notes/Logic/egraphs/>
 
 

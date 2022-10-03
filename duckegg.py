@@ -273,7 +273,7 @@ class Solver():
             "CREATE TABLE duckegg_edge(i integer NOT NULL, j integer NOT NULL);")
         self.funcs = set()
         self.rules = []
-        self.debug = False
+        self.debug = True
         #self.con.execute("PRAGMA enable_profiling")
 
     # honestly, do either of these make sense?
@@ -316,22 +316,22 @@ class Solver():
             for n in range(arity + 1):
                 # We need to delete rows that canonize to duplicates
                 # Because of unique constraint on table.
-                wheres = " AND ".join(
-                    [f"x{i} = good.x{i}" for i in range(arity+1) if i != n])
-                self.execute(f"""
-                DELETE FROM {name}
-                USING duckegg_root
-                WHERE x{n} = duckegg_root.i
-                 AND EXISTS (
-                    SELECT *
-                    FROM {name} AS good
-                    WHERE
-                    x{n} = duckegg_root.j
-                    {"AND" if wheres != "" else ""}
-                    {wheres}
-
-                 )
-                """)
+                # wheres = " AND ".join(
+                #    [f"x{i} = good.x{i}" for i in range(arity+1) if i != n])
+                # self.execute(f"""
+                # DELETE FROM {name}
+                # USING duckegg_root
+                # WHERE x{n} = duckegg_root.i
+                # AND EXISTS (
+                #    SELECT *
+                #    FROM {name} AS good
+                #    WHERE
+                #    x{n} = duckegg_root.j
+                #    {"AND" if wheres != "" else ""}
+                #    {wheres}
+                #
+                # )
+                # """)
 
                 # sets = ",".join([f"x{i} = root{i}.j" for i in range(arity+1)])
                 # froms = ",".join(
@@ -345,7 +345,17 @@ class Solver():
                 WHERE x{n} = duckegg_root.i
                 """)
         # we have used up all the info from duckegg_root now and may safely forget it.
-        self.con.execute("DELETE FROM duckegg_root")
+            cols = ", ".join(f"x{n}" for n in range(arity+1))
+            self.execute(f"""
+                DELETE FROM {name}
+                WHERE rowid NOT IN
+                (
+                    SELECT MAX(rowid) AS MaxRecordID
+                    FROM plus
+                    GROUP BY {cols}
+                );
+            """)
+        self.execute("DELETE FROM duckegg_root")
     # edge() :-
 
     def execute(self, query):
@@ -480,6 +490,7 @@ s.add(plus(-5, -6, -7))
 s.add(plus(-7, -8, -9))
 s.add(plus(-9, -10, -11))
 s.add(plus(-11, -12, -13))
+s.add(plus(-13, -14, -15))
 # s.add(plus(1, reduce(plusf, [FreshVar for x in range(3)]), 3))
 w = Var("w")
 s.add(Clause(plus(plusf(x, y), z, w), [plus(x, plusf(y, z), w)]))
@@ -490,4 +501,6 @@ size = len(s.query("plus"))
 s.con.execute(
     "select sum(col0) from (select count(*) - 1 as col0 from plus group by x0, x1, x2 having count(*) > 1)")
 dups = s.con.fetchone()[0]
+if dups == None:
+    dups = 0
 print(size, dups, size - dups, 3**7 - 2**8 + 1)
