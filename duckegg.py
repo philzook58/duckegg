@@ -197,7 +197,7 @@ class Clause():
 
 
 class Solver():
-    def __init__(self):
+    def __init__(self, debug=False):
         self.con = duckdb.connect(database=':memory:')
         self.con.execute("CREATE SEQUENCE counter START 1;")
         self.con.execute(
