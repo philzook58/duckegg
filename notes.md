@@ -113,3 +113,61 @@ Hmm. Getting this to emit a souffle backend might not be so hard either.
 It would be simpler to make root not have i as a primary key constraint.
 
 A stronger analysis probably could be good to know what a rule actually depends on.
+
+
+Perhaps I need select distinct to happen before calling nextval
+
+
+Call rebuild a lot.
+The recursive path computation isn't worth it? Weird.
+Do at least some of the aggregate during the congruence pass
+
+Deleting is really expensive apparently
+It might be nice to do congruence right in the rule.
+
+
+    def normroot2(self):
+        self.execute("""
+        INSERT INTO duckegg_root
+        SELECT distinct i, j from duckegg_edge
+        --group by i
+        """)
+        self.execute("DELETE FROM duckegg_edge")
+
+
+        self.execute("select count(*) from duckegg_root")
+        print(f"duckegg_root size:{self.con.fetchone()}")
+        self.execute("select count(*) from duckegg_edge")
+        print(f"duckegg_edge size:{self.con.fetchone()}")
+        self.execute("select count(*) from plus")
+        print(f"plus size:{self.con.fetchone()}")
+        s.con.execute(
+            "select sum(col0) from (select count(*) as col0 from plus group by x0, x1, x2 having count(*) > 1)")
+        print(f"dups {s.con.fetchone()}")
+
+
+
+                # sets = ",".join([f"x{i} = root{i}.j" for i in range(arity+1)])
+                # froms = ",".join(
+                #    [f"duckegg_root as root{i}" for i in range(arity+1)])
+                # wheres = " AND ".join(
+                #    [f"root{i}.i = x{i}" for i in range(arity+1)])
+
+                self.execute(f"""
+                UPDATE {name}
+                SET x{n} = duckegg_root.j
+                FROM duckegg_root
+                WHERE x{n} = duckegg_root.i
+                """)
+
+                            # Clean up duplicates
+            cols = ", ".join(f"x{n}" for n in range(arity+1))
+            self.execute(f"""
+                DELETE FROM {name}
+                WHERE rowid NOT IN
+                (
+                    SELECT MIN(rowid) AS MaxRecordID
+                    FROM plus
+                    GROUP BY {cols}
+                );
+            """)

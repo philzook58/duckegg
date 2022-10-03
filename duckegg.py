@@ -43,14 +43,6 @@ def Relation(name):
     return lambda *args: Atom(name, args)
 
 
-def create(sym):
-    name, arity = sym
-    args = ",".join([f"x{n} INTEGER NOT NULL" for n in range(arity)])
-    unique_args = ",".join([f"x{n}" for n in range(arity)])
-    return f"CREATE TABLE {name}({args})"
-    # , CONSTRAINT UC{name} UNIQUE ({unique_args}))"
-
-
 class Term():
     def __init__(self, name, *args):
         self.name = name
@@ -267,16 +259,12 @@ class Solver():
         self.con.execute("CREATE SEQUENCE counter START 1;")
         self.con.execute(
             "CREATE TABLE duckegg_root(i integer primary key, j integer NOT NULL);")
-        # self.con.execute(
-        #    "CREATE TABLE duckegg_root(i integer NOT NULL, j integer NOT NULL);")
         self.con.execute(
             "CREATE TABLE duckegg_edge(i integer NOT NULL, j integer NOT NULL);")
         self.funcs = set()
         self.rules = []
-        self.debug = True
-        #self.con.execute("PRAGMA enable_profiling")
+        self.debug = False
 
-    # honestly, do either of these make sense?
     def normalize_root(self):
         self.execute("""
             WITH RECURSIVE
@@ -290,34 +278,17 @@ class Solver():
                 group by i
 
             """)
-        self.execute("select count(*) from duckegg_root")
-        print(f"duckegg_root size:{self.con.fetchone()}")
-        self.execute("select count(*) from duckegg_edge")
-        print(f"duckegg_edge size:{self.con.fetchone()}")
-        self.execute("select count(*) from plus")
-        print(f"plus size:{self.con.fetchone()}")
-        s.con.execute(
-            "select sum(col0) from (select count(*) as col0 from plus group by x0, x1, x2 having count(*) > 1)")
-        print(f"dups {s.con.fetchone()}")
         # duckegg_edge is now free
         self.execute("DELETE FROM duckegg_edge")
 
-    def normroot2(self):
-        self.execute("""
-        INSERT INTO duckegg_root
-        SELECT distinct i, j from duckegg_edge
-        --group by i
-        """)
-        self.execute("DELETE FROM duckegg_edge")
     # add(x,y,z) :- add(x1,x2,x3), root(x1,x), root(x2,y), root(x3,z).
-
     def canonize_tables(self):
         for name, arity in self.funcs:
             for n in range(arity + 1):
                 # We need to delete rows that canonize to duplicates
                 # Because of unique constraint on table.
-                # wheres = " AND ".join(
-                #    [f"x{i} = good.x{i}" for i in range(arity+1) if i != n])
+                wheres = " AND ".join(
+                    [f"x{i} = good.x{i}" for i in range(arity+1) if i != n])
                 # self.execute(f"""
                 # DELETE FROM {name}
                 # USING duckegg_root
@@ -329,34 +300,42 @@ class Solver():
                 #    x{n} = duckegg_root.j
                 #    {"AND" if wheres != "" else ""}
                 #    {wheres}
-                #
                 # )
                 # """)
-
-                # sets = ",".join([f"x{i} = root{i}.j" for i in range(arity+1)])
-                # froms = ",".join(
-                #    [f"duckegg_root as root{i}" for i in range(arity+1)])
-                # wheres = " AND ".join(
-                #    [f"root{i}.i = x{i}" for i in range(arity+1)])
+                # find all updated entries and insert into temp table
+                args = [f"x{i}" for i in range(arity+1)]
+                args[n] = "duckegg_root.j"
+                args = ", ".join(args)
                 self.execute(f"""
-                UPDATE {name}
-                SET x{n} = duckegg_root.j
-                FROM duckegg_root
+                INSERT INTO duckegg_temp_{name}
+                SELECT DISTINCT {args}
+                FROM plus, duckegg_root
+                WHERE x{n} = duckegg_root.i""")
+
+                # clean out stale entries from plus
+                self.execute(f"""
+                DELETE FROM {name}
+                USING duckegg_root
                 WHERE x{n} = duckegg_root.i
                 """)
+
+                # remove things in temp from plus
+                conds = [
+                    f"{name}.x{i} = duckegg_temp_{name}.x{i}" for i in range(arity+1)]
+                where = " AND ".join(conds)
+                self.execute(f"""
+                   DELETE FROM {name}
+                   USING duckegg_temp_{name}
+                   WHERE {where}
+                 """)
+
+                self.execute(f"""
+                   INSERT INTO {name}
+                   SELECT * FROM duckegg_temp_{name}""")
+                self.execute(f"DELETE FROM duckegg_temp_{name}")
+
         # we have used up all the info from duckegg_root now and may safely forget it.
-            cols = ", ".join(f"x{n}" for n in range(arity+1))
-            self.execute(f"""
-                DELETE FROM {name}
-                WHERE rowid NOT IN
-                (
-                    SELECT MAX(rowid) AS MaxRecordID
-                    FROM plus
-                    GROUP BY {cols}
-                );
-            """)
         self.execute("DELETE FROM duckegg_root")
-    # edge() :-
 
     def execute(self, query):
         if self.debug:
@@ -369,18 +348,18 @@ class Solver():
             res = arity
             self.execute(f"""
             INSERT INTO duckegg_edge
-            SELECT DISTINCT f2.x{res}, f1.x{res}
+            SELECT DISTINCT f2.x{res}, min(f1.x{res})
             FROM {name} as f1, {name} as f2
             WHERE {wheres} {"AND" if arity > 0 else ""} f1.x{res} < f2.x{res}
+            GROUP BY f2.x{res}
             """)
             # bug. consider n = 0
 
     def rebuild(self):
-        for i in range(2):
+        for i in range(1):
             self.congruence()
             # if duckegg_edge empty: break
             self.normalize_root()
-            # self.normroot2()
             self.canonize_tables()
 
     def add(self, rule):
@@ -398,25 +377,42 @@ class Solver():
         else:
             assert False
 
-        # con.execute(f"CREATE TABLE {}")
     def query(self, name):
         self.con.execute(f"SELECT * from {name}")
         return self.con.fetchall()
 
     def solve(self, n=10):
         rules = [normrule for rule in self.rules for normrule in rule.normalize()]
-        # print(rules)
         syms = {sym for rule in rules for sym in rule.all_syms()}
+
+        def create(sym):
+            name, arity = sym
+            args = ",".join([f"x{n} INTEGER NOT NULL" for n in range(arity)])
+            unique_args = ",".join([f"x{n}" for n in range(arity)])
+            self.execute(f"CREATE TABLE  IF NOT EXISTS {name}({args})")
         for sym in syms:
-            self.execute(create(sym))
+            create(sym)
+        for func, arity in self.funcs:
+            create((f"duckegg_temp_{func}", arity+1))
         stmts = []
         for rule in rules:
-            stmts.append(rule.compile())
-        # print(stmts)
+            if len(rule.body) == 0:  # facts
+                self.execute(rule.compile())
+            else:
+                stmts.append(rule.compile())
         for iter in range(n):
             for stmt in stmts:
+                self.execute(
+                    "select count(*) from plus")
+                size = self.con.fetchone()[0]
+                print(size)
                 self.execute(stmt)
-            self.rebuild()
+                self.execute(
+                    "select count(*) from plus")
+                size = self.con.fetchone()[0]
+                print(size)
+                self.rebuild()
+        print(stmts)
 
 
 x, y, z = Vars("x y z")
@@ -484,18 +480,26 @@ plusf = Function("plus")
 s = Solver()
 s.funcs.add(("plus", 2))
 s.add(Clause(plus(x, y, z), [plus(y, x, z)]))
-s.add(plus(-1, -2, -3))
-s.add(plus(-3, -4, -5))
-s.add(plus(-5, -6, -7))
-s.add(plus(-7, -8, -9))
-s.add(plus(-9, -10, -11))
-s.add(plus(-11, -12, -13))
-s.add(plus(-13, -14, -15))
+# N = 9
+# for k in range(1, N):
+#    s.add(plus(-2*k, -2*k-1, -2*k-2))
+
+
+def initplus(x, y, z):
+    s.con.execute(f"INSERT INTO plus VALUES ({x},{y},{z})")
+
+
+s.con.execute(
+    "CREATE TABLE plus(x0 integer NOT NULL, x1 integer NOT NULL, x2 integer NOT NULL);")
+
+N = 10
+for k in range(1, N):
+    initplus(-2*k, -2*k-1, -2*k-2)
 # s.add(plus(1, reduce(plusf, [FreshVar for x in range(3)]), 3))
 w = Var("w")
 s.add(Clause(plus(plusf(x, y), z, w), [plus(x, plusf(y, z), w)]))
 s.add(Clause(plus(x, plusf(y, z), w), [plus(plusf(x, y), z, w)]))
-cProfile.run('s.solve(n=6)')
+cProfile.run('s.solve(n=5)')
 print(len(s.query("plus")))
 size = len(s.query("plus"))
 s.con.execute(
@@ -503,4 +507,4 @@ s.con.execute(
 dups = s.con.fetchone()[0]
 if dups == None:
     dups = 0
-print(size, dups, size - dups, 3**7 - 2**8 + 1)
+print(size, dups, size - dups, 3**N - 2**(N+1) + 1)

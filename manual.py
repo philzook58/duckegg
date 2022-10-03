@@ -26,6 +26,11 @@ def initplus(x, y, z):
 
 
 def delete_copies():
+    pass
+    # delete copies used to delete duplicated things from plus.
+    # This shouldn't be necessary anymore
+    # It was very slow.
+
     # con.execute("""
     # DELETE FROM plus as plus1
     # using plus as plus2
@@ -73,11 +78,11 @@ def canon():
 
         def d4():
             con.execute(f"""
-            DELETE FROM plus USING duckegg_root WHERE x0 = duckegg_root.i
+            DELETE FROM plus USING duckegg_root WHERE x{n} = duckegg_root.i
             AND EXISTS(SELECT * FROM plus AS good WHERE x{n}=duckegg_root.j
                 AND x{othern[0]}=good.x{othern[0]} AND x{othern[1]}=good.x{othern[1]}
             );""")
-        d4()
+        # d4()
         # con.execute(f"""
         # DELETE FROM plus using duckegg_root, plus WHERE duckegg_root
         # """)
@@ -92,9 +97,14 @@ def canon():
         args = ["x0", "x1", "x2"]
         args[n] = "duckegg_root.j"
         args = ", ".join(args)
-        #selct_args = ["x0", "x1", "x2"]
-        #args[n] = "duckegg_root.j"
-        #args = ", ".join(args)
+        # selct_args = ["x0", "x1", "x2"]
+        # args[n] = "duckegg_root.j"
+        # args = ", ".join(args)
+
+        # The temp table seemed the best way to
+        # get a select distinct happening
+        # also get rid of duplicates
+        # Attemping to filter out of temp_plus those keys for which
 
         def d1():
             # con.execute(f"""
@@ -193,16 +203,17 @@ def congruence():
 
 
 def root():
-    # con.execute("""
-    # WITH RECURSIVE
-    #        path(i, j) AS(
-    #            select * from duckegg_edge
-    #            union
-    #            SELECT r1.i, r2.j FROM duckegg_edge AS r1, path as r2 where r1.j=r2.i
-    #        )
-    #        INSERT INTO duckegg_root
-    #            select i, min(j) from path
-    #            group by i""")
+    # not much is happening in here, so no matter what you do it's fine.
+    con.execute("""
+     WITH RECURSIVE
+            path(i, j) AS (
+                select * from duckegg_edge
+                union
+                SELECT r1.i, r2.j FROM duckegg_edge AS r1, path as r2 where r1.j = r2.i
+            )
+            INSERT INTO duckegg_root
+                select i, min(j) from path
+                group by i""")
     # con.execute("""
     # WITH
     #        path(i, j) AS(
@@ -213,10 +224,10 @@ def root():
     #        INSERT INTO duckegg_root
     #            select i, min(j) from path
     #            group by i""")
-    con.execute("""
-            INSERT INTO duckegg_root
-                select i, min(j) from duckegg_edge
-             group by i""")
+    # con.execute("""
+    #        INSERT INTO duckegg_root
+    #            select i, min(j) from duckegg_edge
+    #         group by i""")
     con.execute("DELETE FROM duckegg_edge")
 
 
@@ -255,14 +266,16 @@ def search():
     WHERE plus7.x0 = plus9.x1 AND plus7.x2 = plus8.x1 AND plus8.x0 = plus9.x0 AND
     NOT EXISTS(SELECT * FROM plus WHERE x0 = plus9.x2 AND x1 = plus7.x1 AND x2 = plus8.x2));
     """)
-    con.execute("""
-    -- assoc left 2
-    INSERT INTO duckegg_edge SELECT b, a FROM
-    (SELECT DISTINCT plusy.x2 as a, plus8.x2 as b
-    FROM plus AS plus7, plus AS plus8, plus AS plus9, plus as plusy
-    WHERE plus7.x0 = plus9.x1 AND plus7.x2 = plus8.x1 AND plus8.x0 = plus9.x0 AND
-    plusy.x0 = plus9.x2 AND plusy.x1 = plus7.x1 AND plusy.x2 < plus8.x2);
-    """)
+    # Idea: put anything that causes a congruence directly into duckegg_edge
+    # con.execute("""
+    # -- assoc left 2
+    # INSERT INTO duckegg_edge SELECT b, min(a) FROM
+    # (SELECT DISTINCT plusy.x2 as a, plus8.x2 as b
+    # FROM plus AS plus7, plus AS plus8, plus AS plus9, plus as plusy
+    # WHERE plus7.x0 = plus9.x1 AND plus7.x2 = plus8.x1 AND plus8.x0 = plus9.x0 AND
+    # plusy.x0 = plus9.x2 AND plusy.x1 = plus7.x1 AND plusy.x2 < plus8.x2)
+    # GROUP BY b;
+    # """)
     rebuild()
     print("assoc right")
     con.execute("""
@@ -286,7 +299,7 @@ def search():
 
 
 # con.execute("PRAGMA profiling_output='prof.json';")
-N = 12
+N = 10
 for k in range(1, N):
     initplus(-2*k, -2*k-1, -2*k-2)
 #    initplus(-3, -4, -5)
