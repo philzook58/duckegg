@@ -299,7 +299,7 @@ def search():
 
 
 # con.execute("PRAGMA profiling_output='prof.json';")
-N = 10
+N = 11
 for k in range(1, N):
     initplus(-2*k, -2*k-1, -2*k-2)
 #    initplus(-3, -4, -5)

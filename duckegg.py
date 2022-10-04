@@ -1,5 +1,5 @@
 import cProfile
-from typing import Any
+from typing import Any, List
 import duckdb
 from dataclasses import dataclass
 from collections import defaultdict
@@ -26,7 +26,7 @@ def Vars(xs):
 @dataclass
 class Atom:
     name: str
-    args: list[Any]
+    args: List[Any]
 
     def __repr__(self):
         args = ",".join(map(repr, self.args))
@@ -36,7 +36,7 @@ class Atom:
 @dataclass
 class Term:
     name: str
-    args: list[Any]
+    args: List[Any]
 
     def flatten(self):
         clauses = []
@@ -312,6 +312,9 @@ class Solver():
                 self.add(rule)
         else:
             assert False
+
+    def rule(self, head, body):
+        self.add(Clause(head, body))
 
     def query(self, name):
         self.con.execute(f"SELECT * FROM {name}")
