@@ -296,3 +296,194 @@ print(s.query("zero"))
 print(s.funcs)
 
 """
+
+External hashcons
+Just dumping blobs into and interpreting them outside
+Vector fingerprints
+
+
+
+
+
+"""
+1. A DSL closer to the SQL might be nice.
+
+
+head(x,y,z) :- body(a), body(b).
+
+body becomes FROM and WHERE clauses
+
+Insert Into delta_head
+Select x,y,z From
+(Select Distinct
+    a as x, b as y
+    FROM body as body0, body as body1
+    WHERE 
+
+
+)
+WHERE
+NOT EXISTS
+(SELECT x,y,z)
+
+
+
+WITH 
+    query(x,y,z) AS (SELECT DISTINCT
+    
+    )
+INSERT INTO head SELECT x,y,z FROM query WHERE NOT EXIST (SELECT * FROM head 
+WHERE head.a = query.x, head.b = query.y, )
+
+"""
+
+class From:
+    table:str
+    row:str
+
+class Where:
+    cond:str
+
+class Insert:
+    table:str
+
+
+[From("body", "body0"),
+ From("body", "body1"),
+ Where("body0.x0 = body1.x1")
+
+
+
+varmap = {}
+
+
+def find(v):
+    while isinstance(varmap[v], Var):
+        v = varmap[v]
+    return v
+def union(v1,v2):
+    v1root = find(v1)
+    v2root = find(v2)
+    varmap[v2] = varmap[v1] + varmap[v2]
+    varmap[v1] = v2
+
+
+
+"""
+
+new_head
+
+delta_rel = select distinct * from new_rel where not exists (select * from rel where rel = new_rel AND)
+
+
+insert into new_rel (select distinct
+    a,b,c
+    FROM 
+    WHERE
+)
+
+
+delete from delta_rel
+delta_rel = (select distinct * from new_rel) MINUS (select * from rel)
+delete_from new_rel
+
+"""
+
+
+bodies = []
+for n in range(len(body)):
+    body1 = copy(body)
+    body1[n] = "new" + body1[n]
+    bodies.append(body1)
+
+
+Direction to go:
+- minimal clean version
+- Injecting conditions
+- Dependency Graph
+- Negation
+- Terms
+
+
+
+# stmts.append(
+#    f"INSERT INTO {new(head.name)} SELECT DISTINCT {selects} FROM {froms1} WHERE NOT EXISTS (SELECT * FROM {head.name} AS dataduck_orig WHERE {uniques}) {wheres}")
+
+        uniques = " AND ".join(
+            [f"dataduck_orig.x{n} = {s}" for n, s in enumerate(selects)])
+        selects = ", ".join(selects)
+
+
+dataduck
+1500 29s
+1000 10s
+300 1.6s
+6.25x slower
+
+souffle
+1500 .608
+1000 0.26 s
+300 0.042s
+16x  slower
+
+datalite
+300 - 0.7s
+1000 - 33s
+Woah. It's now faster using EXCEPT. Hmm.
+
+
+
+at 1000 40x slower than souffle
+I guess that's a win? :/  Doesn't particularly feel like a win
+It is crushing sqlite. That's nice I guess
+
+If I could make that one Except better: 0.817s for 1000. That's actually decent
+Somehow the delete not exists became fast. Nice.
+
+I can cut out a couple things by
+
+Ok, I can do delta_foo just being new
+and take an upsert hit to keep set semantics in path.
+
+I think no rowid and then separating delete from where exists somehow was clutch
+5x slowdown from souffle. maybe 4x
+1.057 vs 0.271
+Really not too shabby.
+admittedly, souffle is not parallelized and not compiled
+
+bap-datalog
+
+
+class SQLConst:
+
+class Where:
+    clause: Lambda[Env, str] or just format string? I rather like format string
+
+"{a} {b}".format()
+
+formatvarmap = {k, i[0] for k,i in varmap.items()}
+for w in conds:
+    w.format(**formatvarmap)
+
+"{a} = {b}", "{a} > {b}"
+etc
+
+
+
+dict patterns
+arrays patterns
+Eq
+
+
+I am annoyed. importing networkx on it's own is non trivial amounts of time spent.
+~300ms
+which is roughly the souffle runtime anyhow
+it brings in scipy and numpy
+
+As a baseline, adding all 500000 tuples to a python set takes 0.268s. This is also approximately the total souffle time.
+Adding to a C++ vector takes 0.05s
+
+Another interesting baseline: how long to write all the tuples to a sqlite database.
+
+Wow. The pure python datalog impl baseline2 is 0.4s
+That is shocking.

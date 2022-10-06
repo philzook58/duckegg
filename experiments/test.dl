@@ -1,0 +1,19 @@
+
+
+
+.decl edge(x : number, y : number)
+
+edge(0,1).
+edge(m, m+1) :- edge(_n, m), m < 999.
+
+
+.decl path(x : number, y : number)
+path(x,y) :- edge(x,y).
+path(x,z) :- edge(x,y), path(y,z).
+
+
+//.decl test(x : number)
+//test(y) :- y = count x: path(x,_).
+
+//.output test(IO=stdout).
+.printsize path
