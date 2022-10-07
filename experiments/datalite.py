@@ -28,6 +28,11 @@ class Eq:
     rhs: Any
 
 
+@dataclass
+class Not:
+    val: Any
+
+
 fresh_counter = 0
 
 
@@ -60,16 +65,17 @@ JSON = "TEXT"
 
 
 def delta(name):
-    return f"dataduck_delta_{name}"
+    return f"datalite_delta_{name}"
 
 
 def new(name):
-    return f"dataduck_new_{name}"
+    return f"datalite_new_{name}"
 
 
 class Solver():
     def __init__(self, debug=False, database=":memory:"):
-        self.con = sqlite3.connect(database=database).cursor()
+        self.con = sqlite3.connect(database=database)
+        self.cur = self.con.cursor()
         self.rules = []
         self.rels = {}
         self.debug = debug
@@ -79,7 +85,7 @@ class Solver():
         if self.debug:
             # print(stmt)
             start_time = time.time()
-        self.con.execute(stmt)
+        self.cur.execute(stmt)
         if self.debug:
             end_time = time.time()
             self.stats[stmt] += end_time - start_time
@@ -137,9 +143,31 @@ class Solver():
         wheres = []
         formatvarmap = {k.name: i[0]
                         for k, i in varmap.items() if isinstance(k, Var)}
+
+        def conv_arg(arg):
+            if isinstance(arg, int):
+                return str(arg)
+            if isinstance(arg, str):
+                return f"'{arg}'"
+            if isinstance(arg, Expr):
+                return arg.expr.format(**formatvarmap)
+            elif arg in varmap:
+                return varmap[arg][0]
+            else:
+                print("Invalid head arg", arg)
+                assert False
         for c in body:
             if isinstance(c, str):  # Injected SQL constraint expressions
                 wheres.append(c.format(**formatvarmap))
+            if isinstance(c, Not) and isinstance(c.val, Atom):
+                args = c.val.args
+                fname = fresh(c.val.name)
+                conds = " AND ".join(
+                    [f"{fname}.x{n} = {conv_arg(arg)}" for n, arg in enumerate(args)])
+                wheres.append(
+                    f"NOT EXISTS (SELECT * FROM {c.val.name} AS {fname} WHERE {conds})")
+
+        # implicit equality constraints
         for v, argset in varmap.items():
             for arg in argset:
                 if isinstance(v, int):  # a literal constraint
@@ -159,18 +187,7 @@ class Solver():
         else:
             wheres = ""
         # Semi-naive bodies
-
-        def conv_headarg(arg):
-            if isinstance(arg, int):
-                return str(arg)
-            if isinstance(arg, Expr):
-                return arg.expr.format(**formatvarmap)
-            elif arg in varmap:
-                return varmap[arg][0]
-            else:
-                print("Invalid head arg", arg)
-                assert False
-        selects = ", ".join([conv_headarg(arg) for arg in head.args])
+        selects = ", ".join([conv_arg(arg) for arg in head.args])
         if naive:
             froms = ", ".join(froms)
             return f"INSERT OR IGNORE INTO {new(head.name)} SELECT DISTINCT {selects} FROM {froms}{wheres}"
@@ -192,9 +209,14 @@ class Solver():
             for rel in body:
                 if isinstance(rel, Atom):
                     G.add_edge(rel.name, head.name)
+                elif isinstance(rel, Not):
+                    assert isinstance(rel.val, Atom)
+                    G.add_edge(rel.val.name, head.name)
+
         scc = list(nx.strongly_connected_components(G))
         cond = nx.condensation(G, scc=scc)
         for n in nx.topological_sort(cond):
+            # TODO: negation check
             yield scc[n]
 
     def run(self):
@@ -208,7 +230,7 @@ class Solver():
                         stmts += self.compile(head, body)
                     else:
                         # These are not recursive rules
-                        # They need to be run once naively and forgotten
+                        # They need to be run once naively and can then be forgotten
                         stmt = self.compile(head, body, naive=True)
                         self.execute(stmt)
             # Prepare initial delta relation
@@ -220,6 +242,7 @@ class Solver():
                 self.execute(
                     f"DELETE FROM {new(name)}")
             iter = 0
+            # Seminaive loop
             while True:
                 iter += 1
                 # print(iter)
@@ -241,7 +264,7 @@ class Solver():
                     self.execute(f"DELETE FROM {new(name)}")
 
                     self.execute(f"SELECT COUNT(*) FROM {delta(name)}")
-                    n = self.con.fetchone()[0]
+                    n = self.cur.fetchone()[0]
                     num_new += n
                 if num_new == 0:
                     break
@@ -268,10 +291,23 @@ s.add_rule(edge(0, 1), [])
 s.add_rule(edge(y, Expr("{y} + 1")), [edge(x, y), "{y} < 1000"])
 s.add_rule(path(x, y), [edge(x, y)])
 s.add_rule(path(x, z), [edge(x, y), path(y, z)])
+
+verts = s.Relation("verts", INTEGER)
+s.add_rule(verts(x), [edge(x, y)])
+s.add_rule(verts(y), [edge(x, y)])
+nopath = s.Relation("nopath", INTEGER, INTEGER)
+s.add_rule(nopath(x, y), [verts(x), verts(y), Not(path(x, y))])
+
 cProfile.run('s.run()', sort='cumtime')
 # s.run()
 
 pprint(sorted(s.stats.items(), key=lambda s: s[1], reverse=True)[:10])
 
-s.con.execute("SELECT COUNT(*) FROM path")
-print(s.con.fetchone())
+s.cur.execute("SELECT COUNT(*) FROM path")
+print(s.cur.fetchone())
+
+#s.cur.execute("SELECT COUNT(*) FROM nopath")
+# print(s.cur.fetchone())
+
+#s.cur.execute("SELECT COUNT(*) FROM verts")
+# print(s.cur.fetchone())

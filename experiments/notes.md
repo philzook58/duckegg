@@ -472,7 +472,9 @@ etc
 
 dict patterns
 arrays patterns
-Eq
+Eq - union find
+SQL rather than Expr
+Negation
 
 
 I am annoyed. importing networkx on it's own is non trivial amounts of time spent.
