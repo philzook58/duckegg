@@ -470,11 +470,7 @@ etc
 
 
 
-dict patterns
-arrays patterns
-Eq - union find
-SQL rather than Expr
-Negation
+
 
 
 I am annoyed. importing networkx on it's own is non trivial amounts of time spent.
@@ -489,3 +485,23 @@ Another interesting baseline: how long to write all the tuples to a sqlite datab
 
 Wow. The pure python datalog impl baseline2 is 0.4s
 That is shocking.
+
+
+Negation - checkaroony. Could allow compound negation expressions 
+dict patterns
+arrays patterns
+set patterns
+Eq - union find
+SQL rather than Expr
+Aggregates
+prolog preprocessing - inline relations++
+Lattices
+SMT expressions
+push RPC datalog like irene
+incremental, differential
+python callbacks
+egg1 bindings
+subsumption
+
+ocaml version
+just take the parts of networkx I need.
