@@ -10,6 +10,7 @@ from collections import defaultdict
 from copy import copy
 import networkx as nx
 import time
+import re
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,23 @@ class Atom:
         return f"{self.name}({args})"
 
 
+@dataclass
+class Body(list):
+    def __and__(self, rhs):
+        if isinstance(rhs, Atom):
+            return Body(self + [rhs])
+        elif isinstance(rhs, Body):
+            return Body(self + rhs)
+        else:
+            raise Exception(f"{self} & {rhs} is invalid")
+
+
+@dataclass
+class Clause:
+    head: Atom
+    body: Body
+
+
 # https://www.sqlite.org/datatype3.html
 INTEGER = "INTEGER"
 TEXT = "TEXT"
@@ -66,13 +84,19 @@ REAL = "REAL"
 BLOB = "BLOB"
 JSON = "TEXT"
 
+keyword = "datalite"
+
 
 def delta(name):
-    return f"datalite_delta_{name}"
+    return f"{keyword}_delta_{name}"
 
 
 def new(name):
-    return f"datalite_new_{name}"
+    return f"{keyword}_new_{name}"
+
+
+def validate(name):
+    return re.fullmatch("[_a-zA-Z][_a-zA-Z0-9]*", name) != None
 
 
 class Solver():
@@ -100,6 +124,8 @@ class Solver():
             self.stats[stmt] += end_time - start_time
 
     def Relation(self, name, *types):
+        assert validate(name) and keyword not in name
+        assert all([validate(typ) for typ in types])
         if name not in self.rels:
             self.rels[name] = types
             args = ", ".join(
@@ -117,14 +143,10 @@ class Solver():
         return lambda *args: Atom(name, args)
 
     def add_rule(self, head, body):
-        # assert len(body) > 0
         self.rules.append((head, body))
 
     def add_fact(self, fact: Atom):
         self.add_rule(fact, [])
-        # args = ", ".join(map(json.dumps, fact.args))
-        # self.execute(
-        #    f"INSERT OR IGNORE INTO {new(fact.name)} VALUES ({args})")
 
     def compile(self, head, body, naive=False):
         assert isinstance(head, Atom)
@@ -355,7 +377,7 @@ n = Var("n")
 s = Solver(debug=True)
 nats = s.Relation("nats", JSON, INTEGER)
 s.add_fact(nats(zero, 0))
-#s.add_rule(nats(succ(x), SQL("{n} + 1")), [nats(x, n), "{n} < 3"])
+# s.add_rule(nats(succ(x), SQL("{n} + 1")), [nats(x, n), "{n} < 3"])
 s.con.create_function("mysucc", 1, lambda x: x + 1, deterministic=True)
 s.add_rule(nats(succ(x), SQL("mysucc({n})")), [nats(x, n), "{n} < 3"])
 s.run()
@@ -383,7 +405,7 @@ exprs = s.Relation("exprs", "BoolRef")
 s.add_fact(exprs(z3.Bool("x")))
 s.add_fact(exprs(z3.Bool("y")))
 s.add_fact(exprs(z3.Not(z3.Bool("y"))))
-#s.add_rule(exprs(SQL("z3_and({x},{y})")), [exprs(x), exprs(y)])
+# s.add_rule(exprs(SQL("z3_and({x},{y})")), [exprs(x), exprs(y)])
 s.add_rule(exprs(SQL("z3_or({x},{y})")), [exprs(x), exprs(y)])
 
 tauts = s.Relation("tautologies", "BoolRef")

@@ -488,20 +488,27 @@ That is shocking.
 
 
 Negation - checkaroony. Could allow compound negation expressions 
-dict patterns
-arrays patterns
+dict patterns - check
+arrays patterns - check
 set patterns
 Eq - union find
-SQL rather than Expr
+SQL rather than Expr - check
 Aggregates
 prolog preprocessing - inline relations++
-Lattices
-SMT expressions
+Lattices - on conflict?
+SMT expressions - check
 push RPC datalog like irene
 incremental, differential
 python callbacks
 egg1 bindings
 subsumption
+provenance
 
 ocaml version
 just take the parts of networkx I need.
+
+
+z3 using s expression printer? Then could make a column that implicitly only allows unsat relations?
+
+Relation( x,y,z,lattice = , semiring=, provenenance=True)
+
